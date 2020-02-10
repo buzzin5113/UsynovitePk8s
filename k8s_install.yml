@@ -1,0 +1,196 @@
+# Disable SELinux
+- hosts: all
+  tasks:
+    - name: Disable SELinux
+      selinux:
+        state: disabled
+
+# Disable swapp
+- hosts: all
+  tasks:
+    - name: Delete swap from fstab
+      shell: sed -i '/swap/d' /etc/fstab
+
+# Update systems
+- hosts: all
+  serial: 1
+  tasks:
+    - name: upgrade all packages
+      yum: 
+        name: '*'
+        state: latest
+
+    - name: Restart
+      shell: sleep 2 && shutdown -r now "Ansible reboot"
+      async: 20
+      poll: 0
+    - pause:
+        seconds: 10
+
+    - name: waiting for server to come back after reboot
+      wait_for_connection:
+
+# Install Docker
+- hosts: all
+  tasks:
+    - name: Install packages
+      yum:
+        name:
+          - yum-utils
+          - device-mapper-persistent-data
+          - lvm2
+          - mc
+        state: present
+    - name: Add docker repo
+      yum_repository:
+        name: docker
+        description: Docker repo
+        baseurl: https://download.docker.com/linux/centos/7/$basearch/stable
+    - name: Import repo GGP key
+      rpm_key:
+        key: https://download.docker.com/linux/centos/gpg
+        state: present
+    - name: Install docker
+      yum:
+        name: 
+          - docker-ce
+        state: present
+    - name: Enable docker
+      systemd: 
+        enabled: yes
+        name: docker
+    - name: Start docker
+      systemd:
+        state: started
+        name: docker
+        
+
+# Setup firewall
+- hosts: kmaster
+  tasks:
+    - name: Setup Firewall on kmaster
+      firewalld:
+        port: "{{ item }}"
+        permanent: yes
+        state: enabled
+        immediate: yes
+      with_items:
+        - 6443/tcp
+        - 2379/tcp
+        - 2380/tcp
+        - 10250/tcp
+        - 10251/tcp
+        - 10252/tcp
+- hosts: knode
+  tasks:
+    - name: Setup Firewall on knode
+      firewalld:
+        port: "{{ item }}"
+        permanent: yes
+        state: enabled
+        immediate: yes
+      with_items:
+        - 10250/tcp
+        - 30000-32767/tcp
+
+# Edit /etc/hosts
+- hosts: all
+  tasks:
+    - name: Edit /etc/hosts
+      blockinfile:
+        path: /etc/hosts
+        block: |
+          192.168.0.200 knode01 knode01.local
+          192.168.0.201 knode02 knode02.local
+          192.168.0.202 knode03 knode03.local
+
+# Systemctl parameters
+- hosts: all
+  tasks:
+    - name: ensure net.bridge.bridge-nf-call-ip6tables is set to 1
+      sysctl:
+        name: "{{ item }}"
+        value: 1
+        state: present
+      with_items: 
+        - net.bridge.bridge-nf-call-ip6tables
+        - net.bridge.bridge-nf-call-iptables
+
+# Install kubernates
+- hosts: all
+  tasks:
+    - name: Add kubernates repo
+      yum_repository:
+        name: Kubernates
+        description: Kubernates repo
+        baseurl: https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+        gpgkey: https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+        gpgcheck: yes
+    - name: Install kubelet, kubeadm
+      yum:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - kubelet-1.17.0
+        - kubeadm-1.17.0
+  
+    - name: Enbale and start kubelet
+      systemd:
+        name: kubelet
+        enabled: yes
+        state: started
+
+- hosts: kmaster
+  tasks:
+    - name: Install kubectl
+      yum:
+        name: kubectl-1.17.0
+        state: present
+
+# Create k8s cluster 
+- hosts: kmaster
+  tasks:
+    - name: Init claster
+      shell: kubeadm init --pod-network-cidr=10.244.0.0/16 >> cluster_initialized.txt
+      args:
+        chdir: $HOME
+        creates: cluster_initialized.txt
+    - name: Create .kube directory
+      file:
+        path: $HOME/.kube
+        state: directory
+        mode: 0755
+    - name:  Copy admin.cft to user's kube config
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: ~/.kube/config
+        remote_src: yes
+#    - name: Pause 2 minuts
+#      pause:
+#        seconds: 120
+    - name: Install flannel
+      shell: kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/2140ac876ef134e0ed5af15c65e414cf26827915/Documentation/kube-flannel.yml >> pod_network_setup.txt
+      args: 
+        chdir: $HOME
+        creates: pod_network_setup.txt
+
+# Add nodes to cluster
+- hosts: knode01
+  tasks:
+    - name: Get join command
+      shell: kubeadm token create --print-join-command
+      register: join_command_raw
+    - name: Set join command
+      set_fact:
+        join_command: "{{ join_command_raw.stdout_lines[0] }}"
+    - debug:
+        msg: "{{ join_command }}"
+
+- hosts: knode
+  tasks:
+    - name: Join node to cluster
+      shell: "{{ hostvars['knode01']['join_command'] }} --ignore-preflight-errors all  >> node_joined.txt"
+      args:
+        chdir: $HOME
+        creates: node_joined.txt
+
