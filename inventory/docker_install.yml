@@ -1,0 +1,52 @@
+# Update systems
+- hosts: all
+  serial: 1
+  tasks:
+    - name: upgrade all packages
+      yum: 
+        name: '*'
+        state: latest
+
+    - name: Restart
+      shell: sleep 2 && shutdown -r now "Ansible reboot"
+      async: 20
+      poll: 0
+    - pause:
+        seconds: 10
+
+    - name: waiting for server to come back after reboot
+      wait_for_connection:
+
+# Install Docker
+- hosts: all
+  tasks:
+    - name: Install packages
+      yum:
+        name:
+          - yum-utils
+          - device-mapper-persistent-data
+          - lvm2
+          - mc
+        state: present
+    - name: Add docker repo
+      yum_repository:
+        name: docker
+        description: Docker repo
+        baseurl: https://download.docker.com/linux/centos/7/$basearch/stable
+    - name: Import repo GGP key
+      rpm_key:
+        key: https://download.docker.com/linux/centos/gpg
+        state: present
+    - name: Install docker
+      yum:
+        name: 
+          - docker-ce
+        state: present
+    - name: Enable docker
+      systemd: 
+        enabled: yes
+        name: docker
+    - name: Start docker
+      systemd:
+        state: started
+        name: docker
