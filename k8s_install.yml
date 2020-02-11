@@ -111,7 +111,7 @@
     - name: ensure net.bridge.bridge-nf-call-ip6tables is set to 1
       sysctl:
         name: "{{ item }}"
-        value: 1
+        value: '1'
         state: present
       with_items: 
         - net.bridge.bridge-nf-call-ip6tables
@@ -129,11 +129,8 @@
         gpgcheck: yes
     - name: Install kubelet, kubeadm
       yum:
-        name: "{{ item }}"
+        name: ['kubelet-1.17.0', 'kubeadm-1.17.0']
         state: present
-      with_items:
-        - kubelet-1.17.0
-        - kubeadm-1.17.0
   
     - name: Enbale and start kubelet
       systemd:
@@ -186,10 +183,14 @@
     - name: Install python openshift library by pip
       pip:
         name: openshift
+    - name: Download dashboard
+      get_url: 
+        url: https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-beta8/aio/deploy/recommended.yaml
+        dest: ~/dashboard.yaml
     - name: Create Dashboard
       k8s:
         state: present
-        src:  https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-beta8/aio/deploy/recommended.yaml
+        src: ~/dashboard.yaml
 
 # Add nodes to cluster
 - hosts: knode01
