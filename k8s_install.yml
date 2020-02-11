@@ -181,7 +181,7 @@
 - hosts: knode01
   tasks:
     - name: Install pip
-      shell: "{{ item }}""
+      shell: "{{ item }}"
       with_items:
         - curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
         - python get-pip.py
