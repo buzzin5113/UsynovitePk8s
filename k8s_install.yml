@@ -4,12 +4,14 @@
     - name: Disable SELinux
       selinux:
         state: disabled
+      warn: false
 
 # Disable swapp
 - hosts: all
   tasks:
     - name: Delete swap from fstab
       shell: sed -i '/swap/d' /etc/fstab
+      warn: false
 
 # Update systems
 - hosts: all
@@ -178,7 +180,12 @@
 # Create Dashboard service
 - hosts: knode01
   tasks:
-    - name : Install python openshift library by pip
+    - name: Install pip
+        shell: {{ item }}
+      with_items:
+        - curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+        - python get-pip.py
+    - name: Install python openshift library by pip
       pip:
         name: openshift
     - name: Create Dashboard
