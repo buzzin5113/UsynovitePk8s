@@ -207,6 +207,6 @@
 - hosts: all
   tasks:
     - name: Clone repo
-    git:
-      repo: https://github.com/buzzin5113/UsynovitePk8s.git
-      dest: /root
+      git:
+        repo: https://github.com/buzzin5113/UsynovitePk8s.git
+        dest: /root
