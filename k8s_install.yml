@@ -4,14 +4,12 @@
     - name: Disable SELinux
       selinux:
         state: disabled
-        warn: false
 
 # Disable swapp
 - hosts: all
   tasks:
     - name: Delete swap from fstab
       shell: sed -i '/swap/d' /etc/fstab
-        warn: false
 
 # Update systems
 - hosts: all
