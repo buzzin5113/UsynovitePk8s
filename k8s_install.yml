@@ -178,6 +178,9 @@
 # Create Dashboard service
 - hosts: knode01
   tasks:
+    - name : Install python openshift library by pip
+      pip:
+        name: openshift
     - name: Create Dashboard
       k8s:
         state: present
