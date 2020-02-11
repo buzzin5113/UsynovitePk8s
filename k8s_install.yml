@@ -13,7 +13,7 @@
 
 # Update systems
 - hosts: all
-  serial: 1
+  serial: 3
   tasks:
     - name: upgrade all packages
       yum: 
