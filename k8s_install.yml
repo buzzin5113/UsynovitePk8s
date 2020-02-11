@@ -40,6 +40,7 @@
           - device-mapper-persistent-data
           - lvm2
           - mc
+          - git
         state: present
     - name: Add docker repo
       yum_repository:
@@ -174,6 +175,14 @@
         chdir: $HOME
         creates: pod_network_setup.txt
 
+# Create Dashboard service
+- hosts: knode01
+  tasks:
+    - name: Create Dashboard
+      k8s:
+        state: present
+        src:  https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-beta8/aio/deploy/recommended.yaml
+
 # Add nodes to cluster
 - hosts: knode01
   tasks:
@@ -194,3 +203,10 @@
         chdir: $HOME
         creates: node_joined.txt
 
+# Git clone repo
+- hosts: all
+  tasks:
+    - name: Clone repo
+    git:
+      repo: https://github.com/buzzin5113/UsynovitePk8s.git
+      dest: /root
