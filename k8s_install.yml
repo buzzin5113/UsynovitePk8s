@@ -215,7 +215,11 @@
 # Git clone repo
 - hosts: all
   tasks:
+    - name: Create dir /root/UsynovitePk8s
+      path: /root/UsynovitePk8s
+      state: directory
+      mode: '0755'
     - name: Clone repo
       git:
         repo: https://github.com/buzzin5113/UsynovitePk8s.git
-        dest: /root
+        dest: /root/UsynovitePk8s
