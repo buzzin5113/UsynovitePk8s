@@ -1,0 +1,274 @@
+# Disable SELinux
+- hosts: all
+  tasks:
+    - name: Disable SELinux
+      selinux:
+        state: disabled
+
+# Disable swapp
+- hosts: all
+  tasks:
+    - name: Delete swap from fstab
+      shell: sed -i '/swap/d' /etc/fstab
+
+# Update systems
+- hosts: all
+  serial: 3
+  tasks:
+    - name: upgrade all packages
+      yum: 
+        name: '*'
+        exclude: 
+          - kubeadm
+          - kubectl
+          - kubelet
+        state: latest
+
+    - name: Restart
+      shell: sleep 2 && shutdown -r now "Ansible reboot"
+      async: 20
+      poll: 0
+    - pause:
+        seconds: 10
+
+    - name: waiting for server to come back after reboot
+      wait_for_connection:
+
+# Install Docker container
+- hosts: all
+  tasks:
+    - name: Install packages
+      yum:
+        name:
+          - yum-utils
+          - device-mapper-persistent-data
+          - lvm2
+          - mc
+          - git
+          - tc
+          - python3
+        state: present
+    - name: Add docker repo
+      yum_repository:
+        name: docker
+        description: Docker repo
+        baseurl: https://download.docker.com/linux/centos/8/$basearch/stable
+    - name: Import repo GGP key
+      rpm_key:
+        key: https://download.docker.com/linux/centos/gpg
+        state: present
+    - name: Install container.io
+      yum:
+        name: https://download.docker.com/linux/centos/7/x86_64/stable/Packages/containerd.io-1.5.10-3.1.el7.x86_64.rpm
+        state: present
+    - name: Edit containerd settings
+      replace: 
+        path: /etc/containerd/config.toml
+        regexp: '^(disabled_plugins = \[\"cri\"\])$'
+        replace: 'disabled_plugins = []'
+    - name: Start containerd
+      systemd:
+        name: containerd
+        state: started
+        enabled: yes
+    - name: Install docker
+      yum:
+        name: 
+          - docker-ce
+        state: present
+    - name: Enable docker
+      systemd:
+        enabled: yes
+        name: docker
+    - name: Stop docker
+      systemd:
+        state: stopped
+        name: docker
+    - name: Edit docker settins
+      replace:
+        path: /etc/systemd/system/multi-user.target.wants/docker.service
+        regexp: '^(ExecStart=\/usr\/bin\/dockerd -H fd:\/\/ --containerd=\/run\/containerd\/containerd.sock)$'
+        replace: 'ExecStart=/usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock --exec-opt native.cgroupdriver=systemd'
+    - name: Restart
+      shell: sleep 2 && shutdown -r now "Ansible reboot"
+      async: 20
+      poll: 0
+    - pause:
+        seconds: 10
+    - name: Waiting for server to come back after reboot
+      wait_for_connection:
+
+        
+
+# Setup firewall
+#- hosts: kmaster
+#  tasks:
+#    - name: Setup Firewall on kmaster
+#      firewalld:
+#        port: "{{ item }}"
+#        permanent: yes
+#        state: enabled
+#        immediate: yes
+#      with_items:
+#        - 6443/tcp
+#        - 2379/tcp
+#        - 2380/tcp
+#        - 10250/tcp
+#        - 10251/tcp
+#        - 10252/tcp
+#- hosts: knode
+#  tasks:
+#    - name: Setup Firewall on knode
+#      firewalld:
+#        port: "{{ item }}"
+#        permanent: yes
+#        state: enabled
+#        immediate: yes
+#      with_items:
+#        - 10250/tcp
+#        - 30000-32767/tcp
+- hosts: all
+  tasks:
+    - name: Disable firewalld
+      systemd:
+        name: firewalld
+        state: stopped
+        enabled: no
+
+# Edit /etc/hosts
+- hosts: all
+  tasks:
+    - name: Edit /etc/hosts
+      blockinfile:
+        path: /etc/hosts
+        block: |
+          192.168.0.201 knode01 knode01.local srv01 srv01.buzzin.local
+          192.168.0.202 knode02 knode02.local srv02 srv02.buzzin.local
+          192.168.0.203 knode03 knode03.local srv03 srv03.buzzin.local
+
+# Systemctl parameters
+- hosts: all
+  tasks:
+    - name: Enable br_netfilter
+      modprobe:
+        name: br_netfilter
+        state: present
+- hosts: all
+  tasks:
+    - name: ensure net.bridge.bridge-nf-call-ip6tables is set to 1
+      sysctl:
+        name: "{{ item }}"
+        value: '1'
+        state: present
+      with_items: 
+        - net.bridge.bridge-nf-call-ip6tables
+        - net.bridge.bridge-nf-call-iptables
+        - net.ipv4.ip_forward
+
+# Install kubernates
+- hosts: all
+  tasks:
+    - name: Add kubernates repo
+      yum_repository:
+        name: Kubernates
+        description: Kubernates repo
+        baseurl: https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+        gpgkey: https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+        gpgcheck: yes
+    - name: Install kubelet, kubeadm
+      yum:
+        name: ['kubelet-1.23.0-0', 'kubeadm-1.23.0-0', 'kubectl-1.23.0-0']
+        state: present
+    - name: Enable and start kubelet
+      systemd:
+        name: kubelet
+        enabled: yes
+        state: started
+
+#- hosts: kmaster
+#  tasks:
+#    - name: Install kubectl
+#      yum:
+#        name: kubectl-1.23.0
+#        state: present
+
+# Create k8s cluster 
+- hosts: kmaster
+  tasks:
+    - name: Init claster
+      shell: kubeadm init --v=5 --pod-network-cidr=10.244.0.0/16  >> cluster_initialized.txt
+      args:
+        chdir: $HOME
+        creates: cluster_initialized.txt
+    - name: Create .kube directory
+      file:
+        path: $HOME/.kube
+        state: directory
+        mode: 0755
+    - name:  Copy admin.cft to user's kube config
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: ~/.kube/config
+        remote_src: yes
+    - name: Pause 2 minuts
+      pause:
+        seconds: 120
+
+#    - name: Install flannel
+#      shell: kubectl apply -f kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml >> pod_network_setup.txt
+#      args: 
+#        chdir: $HOME
+#        creates: pod_network_setup.txt
+#
+    - name: Install Tigera opearators
+      shell: kubectl apply -f https://projectcalico.docs.tigera.io/manifests/tigera-operator.yaml
+    - name: Install Calico
+      shell: kubectl apply -f https://projectcalico.docs.tigera.io/manifests/calico.yaml
+
+# Create Dashboard service
+- hosts: knode01
+  tasks:
+    - name: Install python package - openshift
+      pip:
+        name: openshift
+    - name: Download dashboard
+      get_url: 
+        url: https://raw.githubusercontent.com/kubernetes/dashboard/v2.5.0/aio/deploy/recommended.yaml
+        dest: ~/dashboard.yaml
+    - name: Create Dashboard
+      k8s:
+        state: present
+        src: ~/dashboard.yaml
+
+# Add nodes to cluster
+- hosts: knode01
+  tasks:
+    - name: Get join command
+      shell: kubeadm token create --print-join-command
+      register: join_command_raw
+    - name: Set join command
+      set_fact:
+        join_command: "{{ join_command_raw.stdout_lines[0] }}"
+    - debug:
+        msg: "{{ join_command }}"
+
+- hosts: knode
+  tasks:
+    - name: Join node to cluster
+      shell: "{{ hostvars['knode01']['join_command'] }} --ignore-preflight-errors all  >> node_joined.txt"
+      args:
+        chdir: $HOME
+        creates: node_joined.txt
+
+# Git clone repo
+#- hosts: all
+#  tasks:
+#    - name: Create dir /root/UsynovitePk8s
+#      file:
+#        path: /root/UsynovitePk8s
+#        state: directory
+#        mode: '0755'
+#    - name: Clone repo
+#      git:
+#        repo: https://github.com/buzzin5113/UsynovitePk8s.git
+#        dest: /root/UsynovitePk8s
