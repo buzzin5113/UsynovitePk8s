@@ -1,2 +1,2 @@
 # UsynovitePk8s
-Проект UsynovteP на kubernetes
+Наработки по ansible
